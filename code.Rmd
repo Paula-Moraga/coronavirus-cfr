@@ -1,0 +1,714 @@
+---
+title: "Assessing the age- and gender-dependence of the severity and case fatality rates of COVID-19 disease in Spain"
+output: bookdown::pdf_document2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = FALSE, warning = FALSE, message = FALSE)
+```
+
+
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(sp)
+library(rgdal)
+
+#######################################################
+# INI Scenario
+#######################################################
+
+scenario <- "S11" # delay lognormal - ascertainment 1
+scenario <- "S12" # delay lognormal - ascertainment 1.5
+scenario <- "S13" # delay lognormal - ascertainment 2
+scenario <- "S21" # delay gamma - ascertainment 1
+scenario <- "S22" # delay gamma - ascertainment 1.5
+scenario <- "S23" # delay gamma - ascertainment 2
+
+scenario <- "S11" # delay lognormal - ascertainment 1
+
+
+#######################################################
+# END Scenario
+#######################################################
+```
+
+
+```{r}
+#######################################################
+# INI Population by AGE GROUP AND SEX
+#######################################################
+
+dpop <- read.csv("data\\popspainagegroupsex1Jul19.csv")
+
+dpopm <- NULL
+dpopm$`m0-9`   <- rowSums(dpop[which(dpop$X == "hombres"), c("X0.años", "X1.año", paste0("X", 2:9, ".años"))], na.rm = TRUE)
+dpopm$`m10-19` <- rowSums(dpop[which(dpop$X == "hombres"), paste0("X", 10:19, ".años")], na.rm = TRUE)
+dpopm$`m20-29` <- rowSums(dpop[which(dpop$X == "hombres"), paste0("X", 20:29, ".años")], na.rm = TRUE)
+dpopm$`m30-39` <- rowSums(dpop[which(dpop$X == "hombres"), paste0("X", 30:39, ".años")], na.rm = TRUE)
+dpopm$`m40-49` <- rowSums(dpop[which(dpop$X == "hombres"), paste0("X", 40:49, ".años")], na.rm = TRUE)
+dpopm$`m50-59` <- rowSums(dpop[which(dpop$X == "hombres"), paste0("X", 50:59, ".años")], na.rm = TRUE)
+dpopm$`m60-69` <- rowSums(dpop[which(dpop$X == "hombres"), paste0("X", 60:69, ".años")], na.rm = TRUE)
+dpopm$`m70-79` <- rowSums(dpop[which(dpop$X == "hombres"), paste0("X", 70:79, ".años")], na.rm = TRUE)
+dpopm$`m80+`   <- rowSums(dpop[which(dpop$X == "hombres"), c(paste0("X", 80:99, ".años"), "X100.y.más.años")], na.rm = TRUE)
+
+dpopw <- NULL
+dpopw$`w0-9`   <- rowSums(dpop[which(dpop$X == "mujeres"), c("X0.años", "X1.año", paste0("X", 2:9, ".años"))], na.rm = TRUE)
+dpopw$`w10-19` <- rowSums(dpop[which(dpop$X == "mujeres"), paste0("X", 10:19, ".años")], na.rm = TRUE)
+dpopw$`w20-29` <- rowSums(dpop[which(dpop$X == "mujeres"), paste0("X", 20:29, ".años")], na.rm = TRUE)
+dpopw$`w30-39` <- rowSums(dpop[which(dpop$X == "mujeres"), paste0("X", 30:39, ".años")], na.rm = TRUE)
+dpopw$`w40-49` <- rowSums(dpop[which(dpop$X == "mujeres"), paste0("X", 40:49, ".años")], na.rm = TRUE)
+dpopw$`w50-59` <- rowSums(dpop[which(dpop$X == "mujeres"), paste0("X", 50:59, ".años")], na.rm = TRUE)
+dpopw$`w60-69` <- rowSums(dpop[which(dpop$X == "mujeres"), paste0("X", 60:69, ".años")], na.rm = TRUE)
+dpopw$`w70-79` <- rowSums(dpop[which(dpop$X == "mujeres"), paste0("X", 70:79, ".años")], na.rm = TRUE)
+dpopw$`w80+`   <- rowSums(dpop[which(dpop$X == "mujeres"), c(paste0("X", 80:99, ".años"), "X100.y.más.años")], na.rm = TRUE)
+
+dpop <- cbind(data.frame(dpopm), data.frame(dpopw))
+
+names(dpop) <- c("m0-9", "m10-19", "m20-29", "m30-39", "m40-49", "m50-59", "m60-69", "m70-79", "m80+",
+                 "w0-9", "w10-19", "w20-29", "w30-39", "w40-49", "w50-59", "w60-69", "w70-79", "w80+")
+
+popag <- colSums(dpop)
+dpopag <- data.frame(agegroup = names(popag), pop = popag)
+ggplot(dpopag, aes(agegroup, pop)) + geom_bar(stat = "identity") + ggtitle("Population") + labs(x = "", y = "") + theme_bw() + coord_flip()
+
+dpopag$sex <- substring(dpopag$agegroup, 1, 1)
+dpopag$ag <- substring(dpopag$agegroup, 2)
+
+dpopag$p <- dpopag$pop
+dpopag[dpopag$sex == "m", "p"] <- -1*dpopag[dpopag$sex == "m", "p"]
+
+gpopulationpyramid <- ggplot(dpopag, aes(x = ag, y = p, fill = sex)) + 
+  geom_bar(data = dpopag[dpopag$sex == "w", ], stat = "identity") + 
+  geom_bar(data = dpopag[dpopag$sex == "m", ], stat = "identity") + 
+  scale_y_continuous(breaks = c(-40, -30, -20, -10, 0, 10, 20, 30, 40)/10*10^6,
+                     labels = paste0(c(40, 30, 20, 10, 0, 10, 20, 30, 40)/10)) + 
+  coord_flip() +
+  theme_bw() + xlab("") + ylab("Population (thousands)")  + theme(legend.position = "bottom") +
+  scale_fill_manual(name = "", labels = c("male", "female"), values = scales::hue_pal()(4)[c(3, 1)])
+
+
+write(round(sum(dpopag[which(dpopag$agegroup %in% c("m60-69", "m70-79", "m80+")), "pop"])/sum(dpopag$pop)*100, 2),
+      "tables/propmenmore60.txt")
+write(round(sum(dpopag[which(dpopag$agegroup %in% c("w60-69", "w70-79", "w80+")), "pop"])/sum(dpopag$pop)*100, 2),
+      "tables/propwomenmore60.txt")
+
+
+#######################################################
+# END Population by AGE GROUP AND SEX
+#######################################################
+```
+
+
+```{r}
+#######################################################
+# INI Confirmed cases and deaths by age group (only the data with known age). Calculate proportions
+#######################################################
+
+
+da <- read.csv("data/nacional_covid19_rango_edad2020-05-14.csv")
+da$date <- da[, 1]
+da <- da[-which(da$rango_edad == "Total"), ]
+da <- da[which(da$sexo %in% c("hombres", "mujeres")), ]
+
+# Age groups Cases 80-89, 80 y +, 90 y +. Aggregate 80+
+# unique(da$rango_edad)
+# "2020-03-23" only has "80 y +"
+
+# Aggregate 80+
+mat80 <- NULL
+for(f in unique(da$date)){
+for(s in unique(da$sexo)){
+print(f)
+print(s)
+a <- colSums(da[which(da$rango_edad %in% c("80-89", "80 y +", "90 y +") & da$sexo == s & da$date == f), 4:7])
+mat80 <- rbind(mat80, data.frame(f, "80+", s, t(a), f))
+}}
+
+names(mat80) <- names(da)
+
+# Add 80+ and delete the others
+da <- rbind(da, mat80)
+da <- da[-which(da$rango_edad %in% c("80-89", "80 y +", "90 y +")), ]
+
+# Order
+da <- da[order(da$date, da$rango_edad, da$sexo), ]
+da$date <- as.Date(da$date)
+
+# Creo rango_edad with rango_edad and sex
+da$rango_edad <- paste0(ifelse(substring(da$sexo, 1, 1) == "h", "m", "w"), da$rango_edad)
+
+# New outcomes each time
+da[ c("casos_confirmados_new", "hospitalizados_new", "ingresos_uci_new", "fallecidos_new")] <- 0
+for(ag in unique(da$rango_edad)){
+idx <- which(da$rango_edad == ag)
+da[idx, c("casos_confirmados_new", "hospitalizados_new", "ingresos_uci_new", "fallecidos_new")] <- 
+  da[idx, 4:7] - rbind(c(0, 0, 0, 0), da[idx[-length(idx)], 4:7])
+}
+
+
+
+#####################################################################
+# Proportions confirmed and deaths in each group in last date
+
+# Last date
+# lastdate <- max(as.Date(da$date))
+lastdate <- "2020-05-14"
+  
+propconfiragegroup <- da[which(da$date == lastdate), "casos_confirmados"]/sum(da[which(da$date == lastdate), "casos_confirmados"])
+prophospitagegroup <-da[which(da$date == lastdate), "hospitalizados"]/sum(da[which(da$date == lastdate), "hospitalizados"])
+propinguciagegroup <-da[which(da$date == lastdate), "ingresos_uci"]/sum(da[which(da$date == lastdate), "ingresos_uci"])
+propfallecagegroup <-da[which(da$date == lastdate), "fallecidos"]/sum(da[which(da$date == lastdate), "fallecidos"])
+
+vecrangoedad <- dput(da[which(da$date == lastdate), "rango_edad"])
+
+
+de <- data.frame(agerange = factor(vecrangoedad, levels = vecrangoedad), proportion = propconfiragegroup*100,
+                 sex = factor(substring(vecrangoedad, 1, 1), levels = c("m", "w")))
+de$agerange2 <- gsub("m", "male ", de$agerange)
+de$agerange2 <- gsub("w", "female ", de$agerange2)
+de$agerange2 <- factor(de$agerange2, levels = de$agerange2)
+
+gcases <- ggplot(data = de, aes(agerange2, proportion, fill = sex)) + geom_bar(stat = "identity") +
+  labs(x = "", y = "Proportion of confirmed cases") +
+  geom_text(aes(x = agerange2, y = proportion, label = round(proportion, 2)), vjust = -0.5, size = 3) +
+  theme_bw() + ylim(c(0, 15)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0), legend.position = "bottom") +
+  scale_fill_manual(name = "", labels = c("male", "female"), values = scales::hue_pal()(4)[c(3, 1)])
+
+de <- data.frame(agerange = factor(vecrangoedad, levels = vecrangoedad), proportion = propfallecagegroup*100,
+                 sex = factor(substring(vecrangoedad, 1, 1), levels = c("m", "w")))
+de$agerange2 <- gsub("m", "male ", de$agerange)
+de$agerange2 <- gsub("w", "female ", de$agerange2)
+de$agerange2 <- factor(de$agerange2, levels = de$agerange2)
+
+gdeaths <- ggplot(data = de, aes(agerange2, proportion, fill = sex)) + geom_bar(stat = "identity") +
+  labs(x = "", y = "Proportion of deaths") +
+  geom_text(aes(x = agerange2, y = proportion, label = round(proportion, 2)), vjust = -0.5, size = 3) +
+  theme_bw() + ylim(c(0, 32)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0), legend.position = "bottom") +
+  scale_fill_manual(name = "", labels = c("male", "female"), values = scales::hue_pal()(4)[c(3, 1)])
+
+ 
+#######################################################
+# END Confirmed cases and deaths by age group (only the data with known age). Calculate proportions
+#######################################################
+```
+
+
+
+```{r}
+#######################################################
+# INI Confirmed cases and deaths by age group (all data, unknown age). Multiply by proportion
+#######################################################
+
+
+fnReadData <- function(tipo){
+  datedf <- data.frame(Date = seq(from = as.Date("2020-02-21"), to = as.Date(lastdate), by = "day"))
+  d <- read.csv(paste0("data/ccaa_covid19_", tipo, "2020-05-14.csv"))
+  d <- data.frame(Date = as.Date(substring(names(d), 2), format = "%Y.%m.%d")[-c(1:2)],
+                  Value = as.vector(colSums(d[, 3:ncol(d)]))) # sum CCAA
+  d <- merge(datedf, d, by = "Date", all.x = TRUE)
+  return(d)
+}
+
+
+d <- cbind(fnReadData("casos"), fnReadData("hospitalizados")$Value, fnReadData("uci")$Value, fnReadData("fallecidos")$Value)
+names(d) <- c("Date", "cases", "hospitalized", "icu", "deaths")
+
+gtotalcases <- ggplot(d) + geom_line(aes(Date, cases)) + labs(x = "", y = "Cumulative confirmed cases") + theme_bw()
+
+gtotaldeaths <- ggplot(d) + geom_line(aes(Date, deaths)) + labs(x = "", y = "Cumulative deaths") + theme_bw()
+
+gtotalcasesdeaths <- ggplot(d, aes(x = Date)) + geom_line(aes(y = cases, colour = "Confirmed cases")) +
+    geom_line(aes(y = deaths*10, colour = "Deaths")) +
+    scale_y_continuous(sec.axis = sec_axis(~./10, name = "Deaths")) +
+    scale_colour_manual(values = c("blue", "red")) +
+    labs(y = "Confirmed cases", x = "", colour = "") + theme_bw() +
+    theme(legend.position = "bottom")
+
+write(d[which(d$Date == lastdate), "cases"], "tables/totalcaseslastday.txt")
+write(d[which(d$Date == lastdate), "deaths"], "tables/totaldeathslastday.txt")
+
+
+#####################
+
+
+dag <- NULL
+for(i in 1:length(vecrangoedad)){
+  dag <- rbind(dag, data.frame(fecha = d$Date, rango_edad = vecrangoedad[i], sexo = "mw",
+                               casos_confirmados = d[, 2] * propconfiragegroup[i],
+                               hospitalizados = d[, 3] * prophospitagegroup[i],
+                               ingresos_uci = d[, 4] * propinguciagegroup[i],
+                               fallecidos = d[, 5] * propfallecagegroup[i]))
+}
+
+# Replace data
+da <- dag
+da$date <- da$fecha
+
+# Join population
+da <- merge(da, dpopag[, c("agegroup", "pop")], by.x = "rango_edad", by.y = "agegroup")
+
+# Order
+da <- da[order(da$date, da$rango_edad, da$sexo), ]
+
+
+
+##################################
+# Same dates confirmed and deaths
+# Fallecidos before 3 March are NA. I put 0.
+da$fallecidos[which(as.Date(da$date) < as.Date("2020-03-03") & is.na(da$fallecidos))] <- 0
+
+
+# Numeric time
+da$t <- as.numeric(da$date)
+da$t <- da$t - min(da$t)+1
+T <- max(da$t)
+
+
+# New outcomes each time
+da[ c("casos_confirmados_new", "hospitalizados_new", "ingresos_uci_new", "fallecidos_new")] <- 0
+for(ag in unique(da$rango_edad)){
+  for(s in unique(da$sexo)){
+    idx <- which(da$sexo == s & da$rango_edad == ag)
+    da[idx, c("casos_confirmados_new", "hospitalizados_new", "ingresos_uci_new", "fallecidos_new")] <- 
+      da[idx, 4:7] - rbind(c(0, 0, 0, 0), da[idx[-length(idx)], 4:7])
+  }}
+
+
+#######################################################
+# END Confirmed cases and deaths by age group (all data, unknown age). Multiply by proportion
+#######################################################
+```
+
+
+```{r populationpyramid, fig.height=4, include=TRUE, fig.cap="Population by age group and sex in Spain, 2019"}
+gpopulationpyramid
+ggsave(paste0("plots/", scenario, "gpopulationpyramid.png"))
+```
+
+```{r proportioncasesagesex, fig.height=4, include=TRUE, fig.cap='Proportion of confirmed cases by age group and sex.'}
+gcases
+ggsave(paste0("plots/", scenario, "gcases.png"))
+```
+
+
+```{r proportiondeathsagesex, fig.height=4, include=TRUE, fig.cap='Proportion of deaths by age group and sex.'}
+gdeaths
+ggsave(paste0("plots/", scenario, "gdeaths.png"))
+```
+
+
+```{r totalcases, include=TRUE, fig.height=4, fig.cap='Cumulative total number of confirmed cases over time.'}
+gtotalcases
+ggsave(paste0("plots/", scenario, "gtotalcases.png"))
+```
+
+```{r totaldeaths, include=TRUE, fig.height=4, fig.cap='Cumulative total number of deaths over time.'}
+gtotaldeaths
+ggsave(paste0("plots/", scenario, "gtotaldeaths.png"))
+```
+
+```{r totalcasesdeaths, include=TRUE, fig.height=4, fig.cap='Cumulative total number of confirmed cases over time.'}
+gtotalcasesdeaths
+ggsave(paste0("plots/", scenario, "gtotalcasesdeaths.png"))
+```
+
+
+ 
+
+```{r}
+#######################################################
+# INI 0. Deaths divided population
+#######################################################
+
+# 0. Number of deaths in an age group divided by the total population in that age group
+da$cfrdeathsdivpop <- da$fallecidos/ da$pop
+
+#######################################################
+# END 0. Deaths divided population
+#######################################################
+
+
+#######################################################
+# INI 1. Crude CFR
+#######################################################
+
+# 1. CFR crude
+da$cfrcrude <- da$fallecidos/ da$casos_confirmados
+
+#######################################################
+# END 1. Crude CFR
+#######################################################
+
+
+#######################################################
+# INI 2. CFR correcting for preferential ascertainment of severe cases
+#######################################################
+
+# Cases adjusted
+# Age group where attack rate is maximum
+NCa <- (da[which(da$date == lastdate), "pop"]/da[which(da$date == lastdate), "casos_confirmados"])
+which.max(1/NCa)
+
+if(substring(scenario, 3, 3) == "1"){
+scalingfactor <- max(1/NCa) * 1
+}
+if(substring(scenario, 3, 3) == "2"){
+scalingfactor <- max(1/NCa) * 1.5
+}
+if(substring(scenario, 3, 3) == "3"){
+scalingfactor <- max(1/NCa) * 2
+}
+
+# Assume perfect case ascertainment in group with maximum whic is women 80+ group
+# Calculate adjusted cases by multiplying by  max(1/NCa) * NCa
+#dfm <- data.frame(agegroup = dpopag$agegroup, mult = scalingfactor * NCa)
+dfm <- data.frame(agegroup = da[which(da$date == lastdate), "rango_edad"], mult = scalingfactor * NCa)
+
+da <- merge(da, dfm, by.x = "rango_edad", by.y = "agegroup")
+
+da$casesadj <- da$casos_confirmados * da$mult
+da$casesnewadj <- da$casos_confirmados_new * da$mult
+
+# Order
+da <- da[order(da$date, da$rango_edad, da$sexo), ]
+
+# 2. CFR adjusted ascertainment
+da$cfrascertainment <- da$fallecidos/da$casesadj
+
+
+
+#######################################################
+# END 2. CFR correcting for preferential ascertainment of severe cases
+#######################################################
+
+#######################################################
+# INI 3. CFR correcting for delay confirmation to death
+#######################################################
+
+
+# Maximum time
+T <- max(da$t)
+
+# Serial interval distribution (time from onset to death)
+
+if(substring(scenario, 1, 2) == "S1"){
+
+meann <- 13
+sdd <- 12.7
+meanlog <- log(meann^2/sqrt(meann^2 + sdd^2))
+sdlog <- sqrt(2) * sqrt(log(sqrt(meann^2 + sdd^2)/meann))
+GT <- R0::generation.time("lognormal", c(meann, sdd), truncate = T)$GT
+plot(GT, type = "l")
+
+gdistribconfdeath <- ggplot(data.frame(x = seq(0, 60, 0.01), y = dlnorm(seq(0, 60, 0.01), meanlog = meanlog, sdlog = sdlog))) +
+  geom_line(aes(x, y)) + theme_bw() + xlab("Day") + ylab("")
+
+}
+
+if(substring(scenario, 1, 2) == "S2"){
+
+meann <- 18.8
+cv <- 0.45 # cv = sdd/meann
+sdd = cv*meann
+aa = meann * meann/(sdd * sdd)
+ss = sdd * sdd/meann
+GT <- R0::generation.time("gamma", c(meann, sdd), truncate = T)$GT
+plot(GT, type = "l")
+
+gdistribconfdeath <- ggplot(data.frame(x = seq(0, 60, 0.01), y = dgamma(seq(0, 60, 0.01), shape = aa, scale = ss))) +
+  geom_line(aes(x, y)) + theme_bw() + xlab("Day") + ylab("")
+
+}
+
+#####################
+
+
+da$probdiefromttoTbyage <- sapply(da$t, FUN = function(x){sum(GT[1:(1+T-x)])})
+
+ggplot(da) + geom_line(aes(date, probdiefromttoTbyage)) + ggtitle("Probability case with onset time t could die by the last day T") + theme_bw() + facet_grid(rango_edad ~ . , scales = "free_y")
+
+
+da$casesaccumadjdiefromStarttot <- NA
+for(i in 1:length(vecrangoedad)){
+print(i)
+d2 <- da[which(da$rango_edad == vecrangoedad[i]), ]
+for(tt in d2$t){
+TMAX <- tt
+da[which(da$rango_edad == vecrangoedad[i] & da$t == tt), "casesaccumadjdiefromStarttot"]  <- 
+sum(d2$casesnewadj[1:tt] * sapply(d2$t[1:tt], FUN = function(x){sum(GT[1:(1+TMAX-x)])}))
+}}
+
+ggplot(da) + 
+  geom_area(aes(date, casesadj), fill = "lightgray") +
+  geom_line(aes(date, casesaccumadjdiefromStarttot)) +
+  geom_line(aes(date, fallecidos), col = "red") +
+  ggtitle("Number cases adj accumulated could die from start to time t") + theme_bw() +
+  facet_grid(rango_edad ~ . , scales = "free_y")
+
+
+# Calculate for new cases each day
+da$casesnewadjdiefromttoT <- da$casesnewadj * da$probdiefromttoTbyage
+
+ggplot(da) +
+  geom_area(aes(date, casesnewadj), fill = "lightgray") +
+  geom_area(aes(date, casesnewadjdiefromttoT)) +
+  ggtitle("Total cases (gray) and cases with onset time t that die by the last day T (black)") +
+  theme_bw() + facet_grid(rango_edad ~ . , scales = "free_y")
+
+
+
+# 3. CFR delay for each group and time
+da$cfrascertainmentanddelay <- da$fallecidos/da$casesaccumadjdiefromStarttot
+
+
+#######################################################
+# END 3. CFR correcting for delay confirmation to death
+#######################################################
+```
+
+
+```{r}
+
+#######################################################
+# INI Plots CFR
+#######################################################
+
+# Calculate CFR (mean, ll, ul) (crude, adjusted ascertainment, adjusted delay)
+# Cumulative cases and deaths at lastdate
+fnPlotCFR <- function(denominator, maximo = 43){
+# Choose denominator
+da$denominator <- da[, denominator]
+dcfr <- NULL
+for(i in 1:length(vecrangoedad)){
+print(i)  
+d2 <- da[which(da$fecha == lastdate & da$rango_edad == vecrangoedad[i]), ]
+bt <- binom.test(round(d2$fallecidos), round(d2$denominator))
+dcfr <- rbind(dcfr, data.frame(rango_edad = vecrangoedad[i], cfrmean = bt$estimate, cfrll = bt$conf.int[1], cfrul = bt$conf.int[2]))
+}
+
+dcfr$sex <- factor(substring(dcfr$rango_edad, 1, 1), levels = c("m", "w"))
+
+
+write.csv(dcfr, paste0("tables/", scenario, "dcfr", denominator, ".txt"), row.names = FALSE)
+
+g <- ggplot(dcfr, aes(rango_edad, cfrmean*100, fill = sex)) + geom_bar(stat = "identity") +
+  geom_text(aes(x = rango_edad, y = cfrul*100, label = paste0(round(cfrmean*100, 3))), vjust = -0.5, size = 3) +
+  labs(x = "", y = "") + theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.position = "bottom") +
+  geom_errorbar(aes(ymin = cfrll*100, ymax = cfrul*100), width = 0.2) + ylim(c(0, maximo)) +
+  scale_fill_manual(name = "", labels = c("male", "female"), values = scales::hue_pal()(4)[c(3, 1)])
+return(g)
+
+}
+
+
+fnPlotRR <- function(denominator, maximo = 38){
+# Choose denominator
+da$denominator <- da[, denominator]
+dcfr <- NULL
+for(i in 1:length(vecrangoedad)){
+print(i)  
+d2 <- da[which(da$fecha == lastdate & da$rango_edad == vecrangoedad[i]), ]
+bt <- binom.test(round(d2$fallecidos), round(d2$denominator))
+dcfr <- rbind(dcfr, data.frame(rango_edad = vecrangoedad[i], cfrmean = bt$estimate, cfrll = bt$conf.int[1], cfrul = bt$conf.int[2]))
+}
+
+dcfr$sex <- factor(substring(dcfr$rango_edad, 1, 1), levels = c("m", "w"))
+
+divido <- dcfr$cfrmean[17]
+dcfr$cfrmean <- dcfr$cfrmean/divido
+dcfr$cfrll <- dcfr$cfrll/divido
+dcfr$cfrul <- dcfr$cfrul/divido
+
+
+write.csv(dcfr, paste0("tables/", scenario, "drr", denominator, ".txt"), row.names = FALSE)
+
+g <- ggplot(data = data.frame(rango_edad = substring(dcfr$rango_edad, 2), sex = dcfr$sex,
+                              x = rep(1:9, each = 2), y = dcfr$cfrmean, y1 = dcfr$cfrll, y2 = dcfr$cfrul),
+            aes(rango_edad, y, color = sex)) +
+  geom_point(size = 2) +
+  geom_line(aes(x, y)) +
+  geom_ribbon(aes(x, ymin = y1, ymax = y2, fill = sex), alpha = 0.3) +
+  geom_point(size = 2) +
+  geom_line(aes(x, y)) +
+  labs(x = "", y = "") + theme_bw() + 
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5), legend.position = "bottom") +
+  scale_y_continuous(trans = 'log10', breaks = c(0, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1), limits = c(1e-6, 1.1)) +
+  scale_color_manual(name = "", labels = c("male", "female"), values = scales::hue_pal()(4)[c(3, 1)]) +
+  scale_fill_manual(name = "", labels = c("male", "female"), values = scales::hue_pal()(4)[c(3, 1)])
+return(g)
+
+}
+
+
+gRRdeathsdivpop <- fnPlotRR("pop", maximo = 1)
+gCFRdeathsdivpop <- fnPlotCFR("pop", maximo = 1)
+gCFRcrude <- fnPlotCFR("casos_confirmados")
+gCFRascertainment <- fnPlotCFR("casesadj")
+gCFRascertainmentanddelay <- fnPlotCFR("casesaccumadjdiefromStarttot")
+
+da$cfrdeathsdivpop100 <- round(da$cfrdeathsdivpop*100, 2)
+da$cfrcrude100 <- round(da$cfrcrude*100, 2)
+da$cfrascertainment100 <- round(da$cfrascertainment*100, 2)
+da$cfrascertainmentanddelay100 <- round(da$cfrascertainmentanddelay*100, 2)
+
+tabla <- da[which(da$fecha == lastdate), c("rango_edad", "fallecidos", "casos_confirmados", "casesadj", "casesaccumadjdiefromStarttot",
+                      "cfrdeathsdivpop100", "cfrcrude100", "cfrascertainment100", "cfrascertainmentanddelay100")]
+
+tabla[, 2:5] <- round(tabla[, 2:5], 2)
+
+names(tabla) <- c("group", "deaths", "confirmed cases", "adj. cases 1", "adj. cases 2",
+                  "deaths div pop", "crude CFR", "adj. CFR 1", "adj. CFR 2")
+rownames(tabla) <- NULL
+
+
+da$rango_edad2 <- gsub("m", "male ", da$rango_edad)
+da$rango_edad2 <- gsub("w", "female ", da$rango_edad2)
+
+# Plot confirmed and adjusted cases
+gcasesmen <- ggplot(da[which(substring(da$rango_edad, 1, 1) == "m"), ]) +
+   geom_line(aes(date, casos_confirmados, color = "1")) +
+   geom_line(aes(date, casesadj, color = "2")) +
+   geom_line(aes(date, casesaccumadjdiefromStarttot, color = "3")) +
+   facet_grid(rango_edad2 ~ . , scales = "free_y") +
+   labs(x = "", y = "") + theme_bw() +
+   theme(legend.position = "bottom") +
+   scale_color_manual(name = "", values = c("orange", "blue", "red"),
+                      labels = c("Confirmed cases", "Adjusted cases 1", "Adjusted cases 2"))#, values = scales::hue_pal()(4)[c(3, 2, 1)])
+
+gcaseswomen <- ggplot(da[which(substring(da$rango_edad, 1, 1) == "w"), ]) +
+   geom_line(aes(date, casos_confirmados, color = "1")) +
+   geom_line(aes(date, casesadj, color = "2")) +
+   geom_line(aes(date, casesaccumadjdiefromStarttot, color = "3")) +
+   facet_grid(rango_edad2 ~ . , scales = "free_y") +
+   labs(x = "", y = "") + theme_bw() +
+   theme(legend.position = "bottom") +
+   scale_color_manual(name = "", values = c("orange", "blue", "red"),
+                      labels = c("Confirmed cases", "Adjusted cases 1", "Adjusted cases 2"))#, values = scales::hue_pal()(4)[c(3, 2, 1)])
+
+
+
+#######################################################
+# END Plots CFR
+#######################################################
+```
+
+
+
+
+
+```{r casesmen, fig.height=10, include=TRUE, fig.cap='Cumulative confirmed and adjusted cases over time for each age group in men. Adjusted cases 1 are cases adjusted for preferential ascertainment of severe cases. Adjusted cases 2 are cases adjusted for preferential ascertainment of severe cases and time delay between confirmation and death.'}
+gcasesmen
+ggsave(paste0("plots/", scenario, "gcasesmen.png"))
+```
+
+```{r caseswomen, fig.height=10, include=TRUE, fig.cap='Cumulative confirmed and adjusted cases over time for each age group in women. Adjusted cases 1 are cases adjusted for preferential ascertainment of severe cases. Adjusted cases 2 are cases adjusted for preferential ascertainment of severe cases and time delay between confirmation and death.'}
+gcaseswomen
+ggsave(paste0("plots/", scenario, "gcaseswomen.png"))
+```
+
+
+```{r distribconfdeath, fig.height=4, include=TRUE, fig.cap='Distribution of the time from disease onset to death.'}
+gdistribconfdeath
+ggsave(paste0("plots/", scenario, "gdistribconfdeath.png"))
+```
+
+
+
+
+```{r deathsdivpopCFR, fig.height=4, include=TRUE, fig.cap='Deaths divided population.'}
+gCFRdeathsdivpop
+ggsave(paste0("plots/", scenario, "gCFRdeathsdivpop.png"))
+```
+
+```{r deathsdivpopRR, fig.height=4, include=TRUE, fig.cap='Deaths divided population.'}
+gRRdeathsdivpop
+ggsave(paste0("plots/", scenario, "gRRdeathsdivpop.png"))
+```
+
+
+```{r crudeCFR, fig.height=4, include=TRUE, fig.cap='Crude case fatality rate.'}
+gCFRcrude
+ggsave(paste0("plots/", scenario, "gCFRcrude.png"))
+```
+
+```{r CFRascertainment, fig.height=4, include=TRUE, fig.cap='Case fatality rate adjusted for preferential ascertainment of severe cases.'}
+gCFRascertainment
+ggsave(paste0("plots/", scenario, "gCFRascertainment.png"))
+```
+
+
+```{r CFRascertainmentanddelay, fig.height=4, include=TRUE, fig.cap='Case fatality rate adjusted for preferential ascertainment and time delay between confirmation and death.'}
+gCFRascertainmentanddelay
+ggsave(paste0("plots/", scenario, "gCFRascertainmentanddelay.png"))
+```
+
+
+
+
+
+```{r, eval = FALSE}
+
+
+vecscenarios <- c("S11", "S12", "S13", "S21", "S22", "S23")
+
+###############################
+# Tabla scenario S11
+###############################
+
+vectabla <- NULL
+for(denominator in c("casos_confirmados", "casesadj", "casesaccumadjdiefromStarttot")){
+tabla <- cbind(scenario, read.csv(paste0("tables/S11", "dcfr", denominator, ".txt")))
+vectabla <- cbind(vectabla, paste0("& ", signif(100*tabla$cfrmean, digits = 3),
+                                   " (", signif(100*tabla$cfrll, digits = 3),
+                                   ", ", signif(100*tabla$cfrul, digits = 3), ")"))
+}
+meanverity <- rep("", 18)
+meanverity[seq(1, 18, 2)] <- c(0.00260, 0.0148, 0.0600, 0.146, 0.295, 1.25, 3.99, 8.61, 13.4)
+llverity <- rep("", 18)
+llverity[seq(1, 18, 2)] <- c(0.000312, 0.00288, 0.0317, 0.103, 0.221, 1.03, 3.41, 7.48, 11.2)
+ulverity <- rep("", 18)
+ulverity[seq(1, 18, 2)] <- c(0.0382, 0.0759, 0.132, 0.255, 0.422, 1.55, 4.55, 9.99, 15.9)
+vectorverity <- paste0("& ", meanverity,
+                                   " (", llverity,
+                                   ", ", ulverity, ")")
+vectorverity[seq(2, 18, 2)] <- ""
+
+vectabla <- cbind(vectabla, vectorverity)
+
+
+a <- read.csv(paste0("tables/", "S11", "dcfrcasos_confirmados.txt"))
+firstcolumn <- gsub("m", "male ", a$rango_edad)
+firstcolumn <- gsub("w", "female ", firstcolumn)
+firstrow <- paste("& ", paste(vecscenarios, collapse = " & "), "\\\\")
+vectabla <- cbind(firstcolumn, vectabla, "\\\\")
+write(paste(paste(as.vector(t(vectabla)), collapse = "")), "tables/tableCFR.txt")
+
+
+
+###############################
+# Tabla each scenario
+###############################
+
+
+vectabla <- NULL
+for(scenario in vecscenarios){
+tabla <- cbind(scenario, read.csv(paste0("tables/", scenario, "dcfrcasesaccumadjdiefromStarttot.txt")))
+vectabla <- cbind(vectabla, paste0("& ", signif(100*tabla$cfrmean, digits = 3),
+                                   " (", signif(100*tabla$cfrll, digits = 3),
+                                   ", ", signif(100*tabla$cfrul, digits = 3), ")"))
+}
+a <- read.csv(paste0("tables/", "S11", "dcfrcasesaccumadjdiefromStarttot.txt"))
+firstcolumn <- gsub("m", "male ", a$rango_edad)
+firstcolumn <- gsub("w", "female ", firstcolumn)
+firstrow <- paste("& ", paste(vecscenarios, collapse = " & "), "\\\\")
+              vectabla <- cbind(firstcolumn, vectabla, "\\\\")
+write(paste(paste(as.vector(t(vectabla)), collapse = "")), "tables/tableCFRSimulation.txt")
+
+```
+
+
